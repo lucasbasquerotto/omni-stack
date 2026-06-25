@@ -1,6 +1,18 @@
 {
-  "command": "/app/target/release/mcp-server-fetch",
-  "env": {
-    "RUST_LOG": "info"
-  }
+  "servers": [
+    {
+      "name": "fetch",
+      "transport": "stdio",
+      "command": "/app/target/release/mcp-server-fetch",
+      "args": [],
+      "timeout_secs": 60,
+      "max_retries": 2,
+      "allowed_tools": [
+        "*"
+      ],
+      "env": {
+        "RUST_LOG": "info"
+      }
+    }
+  ]
 }

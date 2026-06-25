@@ -1,13 +1,15 @@
 {
   "servers": [
     {
-      "name": "plugin-manager",
+      "name": "plugin_manager",
       "transport": "stdio",
-      "command": "./target/release/mcp-server-plugin-manager",
+      "command": "/app/target/release/mcp-server-plugin-manager",
       "args": [],
-      "timeout_secs": 120,
+      "timeout_secs": 60,
       "max_retries": 2,
-      "allowed_tools": ["*"]
+      "allowed_tools": [
+        "*"
+      ]
     }
   ]
 }

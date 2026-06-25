@@ -2,6 +2,11 @@
   "name": "subtasks",
   "version": "0.1.0",
   "type": "mcp",
-  "description": "Subtask management tools — add, list, update, delete, count thread subtasks",
-  "config_schema": []
+  "description": "Subtask management tools \u2014 add, list, update, delete, count thread subtasks",
+  "config_schema": [],
+  "entrypoint": {
+    "command": "mcp-server-subtasks",
+    "args": [],
+    "transport": "stdio"
+  }
 }

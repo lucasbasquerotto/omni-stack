@@ -1,7 +1,19 @@
 {
-  "command": "/app/target/release/mcp-server-kanban",
-  "env": {
-    "DATABASE_URL": "${DATABASE_URL}",
-    "RUST_LOG": "info"
-  }
+  "servers": [
+    {
+      "name": "kanban",
+      "transport": "stdio",
+      "command": "/app/target/release/mcp-server-kanban",
+      "args": [],
+      "timeout_secs": 60,
+      "max_retries": 2,
+      "allowed_tools": [
+        "*"
+      ],
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}",
+        "RUST_LOG": "info"
+      }
+    }
+  ]
 }

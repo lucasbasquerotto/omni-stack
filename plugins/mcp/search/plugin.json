@@ -4,7 +4,11 @@
   "version": "0.1.0",
   "description": "Search messages and wiki content",
   "type": "mcp",
-  "entrypoint": "mcp-server-search",
+  "entrypoint": {
+    "command": "mcp-server-search",
+    "args": [],
+    "transport": "stdio"
+  },
   "config_schema": [
     {
       "key": "DATABASE_URL",

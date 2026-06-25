@@ -2,6 +2,11 @@
   "name": "plugin-manager",
   "version": "0.1.0",
   "type": "mcp",
-  "description": "Plugin management tools — list, install, uninstall, enable, disable, configure plugins",
-  "config_schema": []
+  "description": "Plugin management tools \u2014 list, install, uninstall, enable, disable, configure plugins",
+  "config_schema": [],
+  "entrypoint": {
+    "command": "mcp-server-plugin-manager",
+    "args": [],
+    "transport": "stdio"
+  }
 }

@@ -43,8 +43,7 @@ services:
       WORKSPACE_DIR: /opt/workspace/omni-workspace
       HINDSIGHT_URL: http://omniagent-hindsight:8888
     volumes:
-      - ./:/opt/omni-stack:ro
-      - omniagent-data:/opt/data:rw
+      - ./:/opt/data:rw
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - /opt/workspace/omni-workspace:/opt/workspace/omni-workspace:rw
       - /opt/data/credentials:/opt/data/credentials:ro
@@ -70,7 +69,7 @@ services:
       PGPASSWORD: omniagent
       PGDATABASE: omniagent
     volumes:
-      - omniagent-data:/opt/data:rw
+      - ./:/opt/data:rw
 
   # hindsight — persistent memory provider
   hindsight:
@@ -91,5 +90,4 @@ services:
 volumes:
   postgres_data:
   qdrant_data:
-  omniagent-data:
   hindsight-data:

@@ -3,11 +3,13 @@
     {
       "name": "subtasks",
       "transport": "stdio",
-      "command": "./target/release/mcp-server-subtasks",
+      "command": "/app/target/release/mcp-server-subtasks",
       "args": [],
       "timeout_secs": 60,
       "max_retries": 2,
-      "allowed_tools": ["*"]
+      "allowed_tools": [
+        "*"
+      ]
     }
   ]
 }

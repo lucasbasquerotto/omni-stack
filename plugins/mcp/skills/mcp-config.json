@@ -1,7 +1,19 @@
 {
-  "command": "/app/target/release/mcp-server-skills",
-  "env": {
-    "OMNI_DATA_DIR": "${OMNI_DATA_DIR:-/opt/data}",
-    "RUST_LOG": "info"
-  }
+  "servers": [
+    {
+      "name": "create_skill",
+      "transport": "stdio",
+      "command": "/app/target/release/mcp-server-skills",
+      "args": [],
+      "timeout_secs": 30,
+      "max_retries": 2,
+      "allowed_tools": [
+        "*"
+      ],
+      "env": {
+        "OMNI_DATA_DIR": "${OMNI_DATA_DIR:-/opt/data}",
+        "RUST_LOG": "info"
+      }
+    }
+  ]
 }

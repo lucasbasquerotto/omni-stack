@@ -3,11 +3,13 @@
     {
       "name": "git",
       "transport": "stdio",
-      "command": "./target/release/mcp-server-git",
+      "command": "/app/target/release/mcp-server-git",
       "args": [],
-      "timeout_secs": 120,
+      "timeout_secs": 60,
       "max_retries": 2,
-      "allowed_tools": ["*"]
+      "allowed_tools": [
+        "*"
+      ]
     }
   ]
 }
