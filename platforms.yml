@@ -5,10 +5,12 @@ platforms:
   telegram:
     enabled: false
     config:
-      bot_token: ""
+      bot_token: ''
   test-python:
     enabled: false
     config: {}
   test-rust:
     enabled: false
     config: {}
+tools: null
+providers: null
