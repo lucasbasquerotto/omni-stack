@@ -36,14 +36,15 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://omniagent:***@postgres:5432/omniagent
+      DATABASE_URL: postgres://omniagent:omniagent@postgres:5432/omniagent
       QDRANT_URL: http://qdrant:6333
       HOST: 0.0.0.0
       PORT: 8080
       WORKSPACE_DIR: /opt/workspace/omni-workspace
-      HINDSIGHT_URL: http://omniagent-hindsight:8888
+      HINDSIGHT_URL: http://hindsight:8888
     volumes:
       - ./:/opt/data:rw
+      - /opt/workspace/omniagent:/app:rw
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - /opt/workspace/omni-workspace:/opt/workspace/omni-workspace:rw
       - /opt/data/credentials:/opt/data/credentials:ro
@@ -55,6 +56,22 @@ services:
     user: root
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  dashboard:
+    image: node:22-alpine
+    working_dir: /app
+    command: ["node", "/app/server/index.js"]
+    ports:
+      - "12346:3001"
+    environment:
+      PORT: "3001"
+      PGPASSWORD: omniagent
+    volumes:
+      - /opt/workspace/omni-stack/:/opt/data/:ro
+      - /opt/workspace/omni-stack/user/:/opt/data/user:rw
+      - /opt/workspace/omni-dashboard/repo/dist:/app/dist:ro
+      - /opt/workspace/omni-dashboard/repo/server-dist:/app/server:ro
+      - /opt/workspace/omni-dashboard/repo/node_modules:/app/node_modules:ro
 
   backup:
     build:
@@ -74,7 +91,6 @@ services:
   # hindsight — persistent memory provider
   hindsight:
     image: ghcr.io/vectorize-io/hindsight:0.7.2
-    container_name: omniagent-hindsight
     restart: unless-stopped
     expose:
       - "8888"
