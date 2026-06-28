@@ -1,6 +1,6 @@
 platforms:
   mattermost:
-    enabled: false
+    enabled: true
     config: {}
   telegram:
     enabled: false
