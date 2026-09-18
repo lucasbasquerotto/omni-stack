@@ -9,12 +9,16 @@
 # bind-mounts the host /opt at /opt (in-and-out), so a checkout under /opt in
 # the image would be shadowed at run time.
 #
-# Build (public repo, no auth - the default):
+# Build (public repo, no auth - the default; works with the classic builder):
 #   docker compose build workbench
-# Private repo / fork (the token never touches this file, the compose file or
-# any committed artifact - it is a BuildKit secret, read from the environment):
-#   WORKBENCH_GIT_TOKEN=<token> docker compose build \
-#     --secret id=github_token,env=WORKBENCH_GIT_TOKEN workbench
+#
+# Private fork instead of the public nexuslbs/workbench? The token is supplied
+# as a BuildKit build secret, so it never touches this file, the compose file or
+# any committed artifact: comment out the public clone RUN below, uncomment the
+# secret-mount RUN further down, and build with BuildKit (docker-buildx):
+#   WORKBENCH_GIT_TOKEN=<token> DOCKER_BUILDKIT=1 docker build \
+#     --secret id=github_token,env=WORKBENCH_GIT_TOKEN \
+#     -t omni-workbench:latest services/workbench
 
 FROM node:22-bookworm-slim
 
@@ -29,22 +33,29 @@ ARG WORKBENCH_REF=main
 
 ENV WORKBENCH_DIR=/workbench
 
-# Build-time clone. The secret mount is OPTIONAL: with no secret supplied the
-# clone is anonymous (a public repo); when the private-repo token secret is
-# supplied it is used for this single command and never stored in a layer.
-RUN --mount=type=secret,id=github_token \
-    set -eux; \
-    url="${WORKBENCH_REPO_URL}"; \
-    if [ -s /run/secrets/github_token ]; then \
-      tok="$(cat /run/secrets/github_token)"; \
-      case "$url" in \
-        https://*) url="https://x-access-token:${tok}@${url#https://}" ;; \
-        *) echo "secret github_token ignored: WORKBENCH_REPO_URL is not https" >&2 ;; \
-      esac; \
-    fi; \
-    git clone --depth 1 --branch "${WORKBENCH_REF}" "${url}" "${WORKBENCH_DIR}"; \
-    git -C "${WORKBENCH_DIR}" remote set-url origin "${WORKBENCH_REPO_URL}"; \
+# Build-time clone, anonymous HTTPS (the repo is public: no credential is used,
+# passed or stored anywhere). --depth 1 keeps the layer small; the ref is pinned
+# by WORKBENCH_REF so a rebuild is reproducible.
+RUN set -eux; \
+    git clone --depth 1 --branch "${WORKBENCH_REF}" "${WORKBENCH_REPO_URL}" "${WORKBENCH_DIR}"; \
     git -C "${WORKBENCH_DIR}" log -1 --oneline
+
+# Private-fork variant (BuildKit only; see the header). The token lives in the
+# secret mount for this single RUN and is not stored in a layer; the public
+# remote URL is restored afterwards so no credential ends up in .git/config.
+# RUN --mount=type=secret,id=github_token \
+#     set -eux; \
+#     url="${WORKBENCH_REPO_URL}"; \
+#     if [ -s /run/secrets/github_token ]; then \
+#       tok="$(cat /run/secrets/github_token)"; \
+#       case "$url" in \
+#         https://*) url="https://${tok}@${url#https://}" ;; \
+#         *) echo "secret github_token ignored: WORKBENCH_REPO_URL is not https" >&2 ;; \
+#       esac; \
+#     fi; \
+#     git clone --depth 1 --branch "${WORKBENCH_REF}" "${url}" "${WORKBENCH_DIR}"; \
+#     git -C "${WORKBENCH_DIR}" remote set-url origin "${WORKBENCH_REPO_URL}"; \
+#     git -C "${WORKBENCH_DIR}" log -1 --oneline
 
 # Runtime dependencies only: the core strips TypeScript at run time (Node >=
 # 22.18), so there is no build step and no dev dependency. Installed HERE, which
