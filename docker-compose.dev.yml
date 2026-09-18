@@ -79,6 +79,19 @@ services:
         aliases:
           - omnidev-postgres
 
+  workbench:
+    # Dev config: the tracked config.yml of the workbench-plugins checkout, read
+    # through the base compose /opt:/opt mount (same path in and out). It loads
+    # the core plugins from the sibling /opt/workspace/workbench core checkout
+    # and THIS repository's plugins from the LOCAL path source
+    # /opt/workspace/workbench-plugins/plugins (no clone, no push): production
+    # uses the remote git source of config/workbench.yml instead.
+    environment:
+      CONFIG_FILE: /opt/workspace/workbench-plugins/config.yml
+    # Dev-only host access (the base compose is expose-only).
+    ports:
+      - "12347:12347"
+
 networks:
   default:
     driver: bridge

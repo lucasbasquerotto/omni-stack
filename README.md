@@ -33,7 +33,8 @@ This repository contains the Docker Compose stack, service definitions, plugin i
 │   ├ noop/                  #   Test provider (Dockerfile + server.py)
 │   ├ prometheus/            #   Metrics collection (Dockerfile + prometheus.yml)
 │   ├ toolbox/               #   Maintenance container (Dockerfile + scripts/)
-│   └ vector/                #   Log shipping (Dockerfile + sinks/sources/transforms.toml)
+│   ├ vector/                #   Log shipping (Dockerfile + sinks/sources/transforms.toml)
+│   └ workbench/             #   Workbench plugins host (Dockerfile, build-time core clone)
 │
 ├ config/                    # OMNI_DIR yml config - see "Config directory" below
 │   ├ actions.yml            #   Action plugin definitions
@@ -91,6 +92,7 @@ This starts the core stack:
 - **omniagent** - the agent API
 - **dashboard** - web UI on port 3001 (behind the tunnel)
 - **toolbox** - utility container (cron, backup, maintenance)
+- **workbench** - workbench plugins host (long-running `serve`, status endpoint :12347)
 - **cloudflared** - tunnel to the dashboard (if `COMPOSE_PROFILES` includes `tunnel`)
 
 Optional services (gated by `COMPOSE_PROFILES`):
@@ -107,6 +109,23 @@ Optional services (gated by `COMPOSE_PROFILES`):
 | `all` | Everything | Full stack |
 
 Combine profiles with commas: `COMPOSE_PROFILES=tunnel,mattermost,memory` or just `COMPOSE_PROFILES=all`.
+
+### workbench service
+
+`workbench` (plugins host, Node) runs from `services/workbench/Dockerfile`, which
+clones the `nexuslbs/workbench` CORE at **build** time (`WORKBENCH_REPO_URL` /
+`WORKBENCH_REF`, default `https://github.com/nexuslbs/workbench@main`). The
+container start clones nothing: it boots the plugins config and stays up
+(`node src/cli.ts serve`). `CONFIG_FILE` selects that config:
+
+- **empty (default)** - the core default config inside the image, core plugins only;
+- **absolute path** - e.g. `CONFIG_FILE=/opt/omni/config/workbench.yml`, the
+  tracked config of the omni-root stack (plugins repo as a REMOTE git source).
+
+Host `/opt` is mapped in-and-out (`/opt:/opt`), so a `CONFIG_FILE` under `/opt/...`
+is the SAME file inside and outside the container. The dev overlay
+(`docker-compose.dev.yml`) points it at `/opt/workspace/workbench-plugins/config.yml`
+(the plugins repo LOCAL path source) and publishes port `12347`.
 
 ### Access
 
@@ -295,6 +314,11 @@ This replaces the old `"dynamic"` api_mode: no hardcoded model-to-mode mappings 
 | `TOOLBOX_IMAGE` | `ghcr.io/nexuslbs/omni-stack-toolbox:latest` | Toolbox image reference |
 | `POSTGRES_IMAGE` | `pgvector/pgvector:pg16` | PostgreSQL image reference |
 | `CLOUDFLARED_IMAGE` | `cloudflare/cloudflared:2026.7.1` | Cloudflare tunnel image reference |
+| `CONFIG_FILE` | `` | workbench plugins config (empty = the core default config inside the image; e.g. `/opt/omni/config/workbench.yml`) |
+| `WORKBENCH_REPO_URL` | `https://github.com/nexuslbs/workbench` | workbench core repo cloned at image build time |
+| `WORKBENCH_REF` | `main` | workbench core ref (branch or tag) cloned at image build time |
+| `WORKBENCH_IMAGE` | `omni-workbench:latest` | workbench service image (built locally from `services/workbench/Dockerfile`) |
+| `WORKBENCH_PORT` | `12347` | workbench status endpoint port (the dev overlay publishes it) |
 
 ---
 
