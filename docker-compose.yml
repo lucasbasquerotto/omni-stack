@@ -1,5 +1,9 @@
 name: ${COMPOSE_PROJECT_NAME:-omni}
 
+# ── Memory budget (operator rule, 2026-09-18) ─────────────────────────────────
+# EVERY service declares an explicit mem_limit and the SUM of all caps stays
+# <= 4 GB (4032M today) so one stack can never starve the others on the shared
+# VM. Adding a service or raising a cap means re-checking that total.
 networks:
   obs-net:
     driver: bridge
@@ -25,8 +29,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    # Hard memory cap: a single stack must never be able to eat the whole VM RAM.
-    mem_limit: 1g
+    # Hard memory cap (see the 4 GB stack budget at the top of this file).
+    mem_limit: 896m
     logging:
       driver: journald
 
@@ -85,8 +89,9 @@ services:
     user: root
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Hard memory cap: the agent (plus dev cargo builds) must stay bounded.
-    mem_limit: 2g
+    # Hard memory cap (see the 4 GB stack budget at the top). The dev overlay
+    # (docker-compose.dev.yml) raises this to 4g for source builds.
+    mem_limit: 1024m
     logging:
       driver: journald
 
@@ -107,7 +112,7 @@ services:
       - /opt/data:/opt/data:ro
       - ${WORKSPACE_DIR:-/opt/workspace}:/opt/workspace:ro
     # Hard memory cap: the dashboard is a small Node service.
-    mem_limit: 512m
+    mem_limit: 192m
     logging:
       driver: journald
 
@@ -138,7 +143,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - omni-toolbox-cron:/var/log
     # Hard memory cap: the toolbox runs the backup/checkpoint cron jobs.
-    mem_limit: 1g
+    mem_limit: 128m
     logging:
       driver: journald
 
@@ -156,7 +161,7 @@ services:
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN}
     command: tunnel --no-autoupdate run
-    mem_limit: 200M
+    mem_limit: 64M
     logging:
       driver: journald
 
@@ -176,6 +181,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 128M
     logging:
       driver: journald
 
@@ -203,6 +209,7 @@ services:
       - mm-data:/mattermost/data:rw
       - mm-logs:/mattermost/logs:rw
       - mm-plugins:/mattermost/plugins:rw
+    mem_limit: 512M
     logging:
       driver: journald
 
@@ -235,6 +242,7 @@ services:
       PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: "${PAPERCLIP_TOOL_ACTION_SIGNING_SECRET:-}"
     volumes:
       - paperclip-data:/paperclip
+    mem_limit: 64M
     logging:
       driver: journald
 
@@ -250,6 +258,7 @@ services:
       - qdrant_data:/qdrant/storage
     expose:
       - "6333"
+    mem_limit: 128M
     logging:
       driver: journald
 
@@ -266,7 +275,7 @@ services:
       - "9999"
     volumes:
       - hindsight-data:/home/hindsight/.pg0
-    mem_limit: 2G
+    mem_limit: 64M
     logging:
       driver: journald
 
@@ -283,7 +292,7 @@ services:
       - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
-    mem_limit: 200M
+    mem_limit: 64M
     logging:
       driver: journald
 
@@ -305,7 +314,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
     volumes:
       - prometheus-vol:/prometheus:rw
-    mem_limit: 500M
+    mem_limit: 128M
     logging:
       driver: journald
 
@@ -333,7 +342,7 @@ services:
       - obs-net
     depends_on:
       - loki
-    mem_limit: 500M
+    mem_limit: 128M
     # CRITICAL: must NOT use the journald driver (same rule as the omni-root repo's
     # vector). The console sink writes every processed log to stdout; with the
     # journald driver that output re-enters the journald source -> infinite
@@ -360,7 +369,7 @@ services:
       - obs-net
     command: -config.file=/etc/loki/loki-config.yaml
     user: root
-    mem_limit: 500M
+    mem_limit: 192M
     logging:
       driver: journald
 
@@ -386,7 +395,7 @@ services:
       loki:
         condition: service_started
         required: false
-    mem_limit: 500M
+    mem_limit: 256M
     logging:
       driver: journald
 
@@ -405,6 +414,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    mem_limit: 64M
     logging:
       driver: journald
 

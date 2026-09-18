@@ -27,7 +27,8 @@ services:
     # jobs in parallel (nproc=2). The base compose 2g cap made the kernel
     # OOM-kill rustc/clippy-driver inside the container cgroup
     # (CONSTRAINT_MEMCG) and aborted the deploy. Dev gets more headroom;
-    # production keeps the base 2g cap.
+    # production keeps the base 1024m cap (see the 4 GB stack budget in
+    # docker-compose.yml).
     mem_limit: 4g
     dns:
       - 8.8.8.8
