@@ -80,6 +80,15 @@ services:
           - omnidev-postgres
 
   workbench:
+    # Dev-only source build: the base compose is IMAGE-ONLY; the image is built
+    # here from services/workbench/Dockerfile (build-time clone of the core repo
+    # via WORKBENCH_REPO_URL / WORKBENCH_REF).
+    build:
+      context: ./services/workbench
+      dockerfile: Dockerfile
+      args:
+        WORKBENCH_REPO_URL: ${WORKBENCH_REPO_URL:-https://github.com/nexuslbs/workbench}
+        WORKBENCH_REF: ${WORKBENCH_REF:-main}
     # Dev config: the tracked config.yml of the workbench-plugins checkout, read
     # through the base compose /opt:/opt mount (same path in and out). It loads
     # the core plugins from the sibling /opt/workspace/workbench core checkout

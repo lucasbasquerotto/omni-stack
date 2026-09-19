@@ -92,7 +92,6 @@ This starts the core stack:
 - **omniagent** - the agent API
 - **dashboard** - web UI on port 3001 (behind the tunnel)
 - **toolbox** - utility container (cron, backup, maintenance)
-- **workbench** - workbench plugins host (long-running `serve`, status endpoint :12347)
 - **cloudflared** - tunnel to the dashboard (if `COMPOSE_PROFILES` includes `tunnel`)
 
 Optional services (gated by `COMPOSE_PROFILES`):
@@ -106,14 +105,19 @@ Optional services (gated by `COMPOSE_PROFILES`):
 | `logs` | vector, loki | Log aggregation |
 | `monitor` | prometheus, grafana | Metrics & dashboards |
 | `cadvisor` | cadvisor + prometheus | Container metrics |
+| `workbench` | workbench | Workbench plugins host (long-running `serve`, :12347) |
 | `all` | Everything | Full stack |
 
 Combine profiles with commas: `COMPOSE_PROFILES=tunnel,mattermost,memory` or just `COMPOSE_PROFILES=all`.
 
 ### workbench service
 
-`workbench` (plugins host, Node) runs from `services/workbench/Dockerfile`, which
-clones the `nexuslbs/workbench` CORE at **build** time (`WORKBENCH_REPO_URL` /
+`workbench` (plugins host, Node) is an **opt-in** service: it starts only when
+the `workbench` (or `all`) compose profile is enabled. The base
+`docker-compose.yml` is **image-only** (NO `build` section and no published
+ports - `expose` only); the image is built by the dev overlay
+(`docker-compose.dev.yml`) from `services/workbench/Dockerfile`, which clones
+the `nexuslbs/workbench` CORE at **build** time (`WORKBENCH_REPO_URL` /
 `WORKBENCH_REF`, default `https://github.com/nexuslbs/workbench@main`). The
 container start clones nothing: it boots the plugins config and stays up
 (`node src/cli.ts serve`). `CONFIG_FILE` selects that config:
@@ -125,7 +129,10 @@ container start clones nothing: it boots the plugins config and stays up
 Host `/opt` is mapped in-and-out (`/opt:/opt`), so a `CONFIG_FILE` under `/opt/...`
 is the SAME file inside and outside the container. The dev overlay
 (`docker-compose.dev.yml`) points it at `/opt/workspace/workbench-plugins/config.yml`
-(the plugins repo LOCAL path source) and publishes port `12347`.
+(the plugins repo LOCAL path source) and publishes port `12347`. The `git`
+plugin-source checkout lives in the external named volume `workbench-cache`
+(mounted at `WORKBENCH_CACHE_DIR`, default `/var/lib/workbench/sources`), so it
+survives container recreation and never touches the host tree.
 
 ### Access
 

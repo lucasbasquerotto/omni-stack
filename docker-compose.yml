@@ -151,18 +151,16 @@ services:
 
   #  workbench: agent equipment layer (plugins host, long-running) 
   workbench:
-    # Node service that carries the workbench CORE checkout, cloned from git AT
-    # BUILD TIME by services/workbench/Dockerfile (build args WORKBENCH_REPO_URL
-    # / WORKBENCH_REF). The container start clones and installs NOTHING: it boots
-    # the plugins and stays up (the core's `serve` command). workbench is
-    # agent-agnostic - this service is the only coupling with the stack.
+    # Opt-in service: gated behind the "workbench" (or "all") compose profile -
+    # it is NOT part of the default stack. The base compose is the stable/runtime
+    # definition and is IMAGE-ONLY: it carries NO build section. The image is
+    # built from services/workbench/Dockerfile (build args WORKBENCH_REPO_URL /
+    # WORKBENCH_REF) by the dev overlay (docker-compose.dev.yml). The container
+    # start clones and installs NOTHING: it boots the plugins and stays up (the
+    # core's `serve` command). workbench is agent-agnostic - this service is the
+    # only coupling with the stack.
+    profiles: ["workbench", "all"]
     image: ${WORKBENCH_IMAGE:-omni-workbench:latest}
-    build:
-      context: services/workbench
-      dockerfile: Dockerfile
-      args:
-        WORKBENCH_REPO_URL: ${WORKBENCH_REPO_URL:-https://github.com/nexuslbs/workbench}
-        WORKBENCH_REF: ${WORKBENCH_REF:-main}
     restart: unless-stopped
     # Long-running mode: `serve` boots the plugins behind a status endpoint and
     # blocks until SIGINT/SIGTERM (a sleep loop would report Up while hosting
@@ -188,6 +186,11 @@ services:
       # /opt/workspace/workbench-plugins/config.yml). The image's own checkout
       # lives in /workbench, outside /opt, so this mount never shadows it.
       - /opt:/opt:rw
+      # EXTERNAL NAMED VOLUME (NOT a bind mount): the `git` plugin-source
+      # checkout persists across container recreation and never leaks into the
+      # host tree. WORKBENCH_CACHE_DIR is the path INSIDE the container; the
+      # volume itself is declared in the top-level `volumes:` below.
+      - workbench-cache:${WORKBENCH_CACHE_DIR:-/var/lib/workbench/sources}:rw
     expose:
       - "12347"
     healthcheck:
@@ -494,3 +497,4 @@ volumes:
   grafana-vol:
   prometheus-vol:
   vector-vol:
+  workbench-cache:
