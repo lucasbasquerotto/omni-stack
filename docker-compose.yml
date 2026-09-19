@@ -2,8 +2,10 @@ name: ${COMPOSE_PROJECT_NAME:-omni}
 
 # ── Memory budget (operator rule, 2026-09-18) ─────────────────────────────────
 # EVERY service declares an explicit mem_limit and the SUM of all caps stays
-# <= 4 GB (4096M today) so one stack can never starve the others on the shared
-# VM. Adding a service or raising a cap means re-checking that total.
+# <= 4.5 GB (4544M today) so one stack can never starve the others on the
+# shared VM. Adding a service or raising a cap means re-checking that total.
+# (workbench 64M -> 512M on 2026-09-18: running the core's own `node --test`
+# suite inside that container was OOM-killed, exit 137.)
 networks:
   obs-net:
     driver: bridge
@@ -165,7 +167,7 @@ services:
     # Long-running mode: `serve` boots the plugins behind a status endpoint and
     # blocks until SIGINT/SIGTERM (a sleep loop would report Up while hosting
     # nothing). --max-old-space-size keeps the V8 heap inside mem_limit.
-    command: ["node", "--max-old-space-size=32", "src/cli.ts", "serve"]
+    command: ["node", "--max-old-space-size=384", "src/cli.ts", "serve"]
     environment:
       # Plugins config file. EMPTY (the default) = the core default config
       # shipped in the image (/workbench/workbench.config.yml, core plugins
@@ -196,9 +198,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    # Hard memory cap: the core is a small plugin host. The stack budget
-    # (4096M, see the top of this file) is fully allocated with this service.
-    mem_limit: 64M
+    # Hard memory cap: the core is a small plugin host, but 64M (with a 32M V8
+    # heap) is too small to run the core's own test suite inside this container:
+    # `node --test` was OOM-killed (exit 137). 512M fits `serve` plus one
+    # on-demand test run; the stack budget (top of file) was re-checked.
+    mem_limit: 512M
     logging:
       driver: journald
 
