@@ -324,7 +324,7 @@ This replaces the old `"dynamic"` api_mode: no hardcoded model-to-mode mappings 
 | `CONFIG_FILE` | `` | workbench plugins config (empty = the core default config inside the image; e.g. `/opt/omni/config/workbench.yml`) |
 | `WORKBENCH_REPO_URL` | `https://github.com/nexuslbs/workbench` | workbench core repo cloned at image build time |
 | `WORKBENCH_REF` | `main` | workbench core ref (branch or tag) cloned at image build time |
-| `WORKBENCH_IMAGE` | `omni-workbench:latest` | workbench service image (built locally from `services/workbench/Dockerfile`) |
+| `WORKBENCH_IMAGE` | `ghcr.io/nexuslbs/workbench:latest` | workbench service image (published core image; the dev overlay builds it locally from `services/workbench/Dockerfile`) |
 | `WORKBENCH_PORT` | `12347` | workbench status endpoint port (the dev overlay publishes it) |
 
 ---

@@ -18,7 +18,7 @@
 # secret-mount RUN further down, and build with BuildKit (docker-buildx):
 #   WORKBENCH_GIT_TOKEN=<token> DOCKER_BUILDKIT=1 docker build \
 #     --secret id=github_token,env=WORKBENCH_GIT_TOKEN \
-#     -t omni-workbench:latest services/workbench
+#     -t ghcr.io/nexuslbs/workbench:latest services/workbench
 
 FROM node:22-bookworm-slim
 

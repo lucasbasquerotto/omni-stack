@@ -160,7 +160,9 @@ services:
     # core's `serve` command). workbench is agent-agnostic - this service is the
     # only coupling with the stack.
     profiles: ["workbench", "all"]
-    image: ${WORKBENCH_IMAGE:-omni-workbench:latest}
+    # Default: the PUBLISHED core image (ghcr.io/nexuslbs/workbench:latest,
+    # built by the core repo's CI); WORKBENCH_IMAGE overrides it.
+    image: ${WORKBENCH_IMAGE:-ghcr.io/nexuslbs/workbench:latest}
     restart: unless-stopped
     # Long-running mode: `serve` boots the plugins behind a status endpoint and
     # blocks until SIGINT/SIGTERM (a sleep loop would report Up while hosting
