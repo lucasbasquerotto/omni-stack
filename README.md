@@ -105,7 +105,7 @@ Optional services (gated by `COMPOSE_PROFILES`):
 | `logs` | vector, loki | Log aggregation |
 | `monitor` | prometheus, grafana | Metrics & dashboards |
 | `cadvisor` | cadvisor + prometheus | Container metrics |
-| `workbench` | workbench | Workbench plugins host (long-running `serve`, :12347) |
+| `workbench` | workbench | Workbench plugins host (long-running `serve`, container port :8080; the dev overlay publishes 12347:8080) |
 | `all` | Everything | Full stack |
 
 Combine profiles with commas: `COMPOSE_PROFILES=tunnel,mattermost,memory` or just `COMPOSE_PROFILES=all`.
@@ -120,16 +120,18 @@ ports - `expose` only); the image is built by the dev overlay
 the `nexuslbs/workbench` CORE at **build** time (`WORKBENCH_REPO_URL` /
 `WORKBENCH_REF`, default `https://github.com/nexuslbs/workbench@main`). The
 container start clones nothing: it boots the plugins config and stays up
-(`node src/cli.ts serve`). `CONFIG_FILE` selects that config:
+(`node src/cli.ts serve`). The service env var `CONFIG_FILE` (set from the
+`WORKBENCH_CONFIG_FILE` .env var) selects that config:
 
 - **empty (default)** - the core default config inside the image, core plugins only;
-- **absolute path** - e.g. `CONFIG_FILE=/opt/omni/config/workbench.yml`, the
+- **absolute path** - e.g. `WORKBENCH_CONFIG_FILE=/opt/omni/config/workbench.yml`, the
   tracked config of the omni-root stack (plugins repo as a REMOTE git source).
 
 Host `/opt` is mapped in-and-out (`/opt:/opt`), so a `CONFIG_FILE` under `/opt/...`
 is the SAME file inside and outside the container. The dev overlay
 (`docker-compose.dev.yml`) points it at `/opt/workspace/workbench-plugins/config.yml`
-(the plugins repo LOCAL path source) and publishes port `12347`. The `git`
+(the plugins repo LOCAL path source) and publishes it on the host as
+`12347:8080` (the container-internal status port is `8080`). The `git`
 plugin-source checkout lives in the external named volume `workbench-cache`
 (mounted at `WORKBENCH_CACHE_DIR`, default `/var/lib/workbench/sources`), so it
 survives container recreation and never touches the host tree.
@@ -321,11 +323,11 @@ This replaces the old `"dynamic"` api_mode: no hardcoded model-to-mode mappings 
 | `TOOLBOX_IMAGE` | `ghcr.io/nexuslbs/omni-stack-toolbox:latest` | Toolbox image reference |
 | `POSTGRES_IMAGE` | `pgvector/pgvector:pg16` | PostgreSQL image reference |
 | `CLOUDFLARED_IMAGE` | `cloudflare/cloudflared:2026.7.1` | Cloudflare tunnel image reference |
-| `CONFIG_FILE` | `` | workbench plugins config (empty = the core default config inside the image; e.g. `/opt/omni/config/workbench.yml`) |
+| `WORKBENCH_CONFIG_FILE` | `` | workbench plugins config (empty = the core default config inside the image; e.g. `/opt/omni/config/workbench.yml`) |
 | `WORKBENCH_REPO_URL` | `https://github.com/nexuslbs/workbench` | workbench core repo cloned at image build time |
 | `WORKBENCH_REF` | `main` | workbench core ref (branch or tag) cloned at image build time |
 | `WORKBENCH_IMAGE` | `ghcr.io/nexuslbs/workbench:latest` | workbench service image (published core image; the dev overlay builds it locally from `services/workbench/Dockerfile`) |
-| `WORKBENCH_PORT` | `12347` | workbench status endpoint port (the dev overlay publishes it) |
+| `WORKBENCH_PORT` | `8080` | workbench status endpoint port INSIDE the container (the dev overlay publishes it as host 12347) |
 
 ---
 

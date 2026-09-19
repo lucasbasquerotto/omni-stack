@@ -174,9 +174,11 @@ services:
       # only). Non-empty = that exact path, e.g. the operator's
       # CONFIG_FILE=/opt/omni/config/workbench.yml (a tracked file of the
       # omni-root stack) - see .env.example.
-      CONFIG_FILE: ${CONFIG_FILE:-}
-      # Status endpoint port of `serve`; the dev overlay publishes it on 12347.
-      WORKBENCH_PORT: ${WORKBENCH_PORT:-12347}
+      CONFIG_FILE: ${WORKBENCH_CONFIG_FILE:-}
+      # Status endpoint port of `serve` INSIDE the container (the core's
+      # WORKBENCH_PORT, default 8080); the dev overlay publishes it on the host
+      # as 12347:8080.
+      WORKBENCH_PORT: ${WORKBENCH_PORT:-8080}
       # Where git plugin sources are checked out. Backed by the EXTERNAL NAMED
       # VOLUME `workbench-cache` (declared in the service's volumes list and in
       # the top-level volumes: block below): the checkout survives container
@@ -196,11 +198,13 @@ services:
       # volume itself is declared in the top-level `volumes:` below.
       - workbench-cache:${WORKBENCH_CACHE_DIR:-/var/lib/workbench/sources}:rw
     expose:
-      - "12347"
+      # Container-INTERNAL port (never a host port): the dev overlay publishes
+      # it on the host as 12347:8080.
+      - "8080"
     healthcheck:
       # curl (installed in the service image) probes the status endpoint, so the
       # service is verifiably HOSTING the plugins, not merely running.
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${WORKBENCH_PORT:-12347}/health > /dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${WORKBENCH_PORT:-8080}/health > /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 5

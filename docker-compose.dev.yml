@@ -1,11 +1,20 @@
 # Dev overlay: adds cargo build capabilities to the omniagent container
 # and binds source mounts for the dashboard.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# IMAGE NAMES: every service that BUILDS in this overlay declares an EXPLICIT
+# image name in the local/ namespace. The base compose is image-only and its
+# defaults are the PUBLISHED images (ghcr.io/nexuslbs/...), so a merged build
+# would otherwise re-tag a published name with the local build. The local/ tags
+# keep a local build apart from the published image (dashboard/toolbox reuse the
+# names deploy.py hybrid builds; workbench -> local/workbench).
 services:
   omniagent:
     build:
       context: /opt/workspace/omniagent
       dockerfile: Dockerfile.dev
+    # Explicit local image name (see the header): Dockerfile.dev is NOT the
+    # published production image, so a dev build must never re-tag it.
     image: omniagent-dev:latest
     env_file: []
     command: /target/release/omniagent
@@ -41,6 +50,8 @@ services:
     build:
       context: /opt/workspace/omni-dashboard
       dockerfile: Dockerfile
+    # Explicit local image name (see the header).
+    image: local/omni-dashboard:latest
     # The image copies the compiled backend to /app/server; /opt/repo is the
     # source bind mount and does not contain generated server-dist output.
     command: ["node", "/app/server/index.js"]
@@ -59,6 +70,8 @@ services:
     build:
       context: ./services/toolbox
       dockerfile: Dockerfile
+    # Explicit local image name (see the header).
+    image: local/omni-toolbox:latest
 
   mattermost:
     ports:
@@ -89,6 +102,10 @@ services:
       args:
         WORKBENCH_REPO_URL: ${WORKBENCH_REPO_URL:-https://github.com/nexuslbs/workbench}
         WORKBENCH_REF: ${WORKBENCH_REF:-main}
+    # Explicit local image name: the image is built ON THE FLY here, so it is
+    # tagged local/workbench:latest - never the published
+    # ghcr.io/nexuslbs/workbench:latest of the base compose.
+    image: local/workbench:latest
     # Dev config: the tracked config.yml of the workbench-plugins checkout, read
     # through the base compose /opt:/opt mount (same path in and out). It loads
     # the core plugins from the sibling /opt/workspace/workbench core checkout
@@ -97,9 +114,10 @@ services:
     # uses the remote git source of config/workbench.yml instead.
     environment:
       CONFIG_FILE: /opt/workspace/workbench-plugins/config.yml
-    # Dev-only host access (the base compose is expose-only).
+    # Dev-only host access: host 12347 -> the container's INTERNAL port 8080
+    # (the base compose is expose-only and never publishes a host port).
     ports:
-      - "12347:12347"
+      - "12347:8080"
 
 networks:
   default:
