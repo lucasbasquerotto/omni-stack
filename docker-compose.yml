@@ -175,9 +175,11 @@ services:
       CONFIG_FILE: ${CONFIG_FILE:-}
       # Status endpoint port of `serve`; the dev overlay publishes it on 12347.
       WORKBENCH_PORT: ${WORKBENCH_PORT:-12347}
-      # Where git plugin sources are checked out. Deliberately INSIDE the
-      # container: the checkout is disposable and must not pollute the tracked
-      # /opt/omni config directory of the host.
+      # Where git plugin sources are checked out. Backed by the EXTERNAL NAMED
+      # VOLUME `workbench-cache` (declared in the service's volumes list and in
+      # the top-level volumes: block below): the checkout survives container
+      # recreation and never pollutes the tracked /opt/omni config directory of
+      # the host. WORKBENCH_CACHE_DIR is the path INSIDE the container.
       WORKBENCH_CACHE_DIR: ${WORKBENCH_CACHE_DIR:-/var/lib/workbench/sources}
     volumes:
       # /opt mapped IN AND OUT: a CONFIG_FILE under /opt/... resolves to the
