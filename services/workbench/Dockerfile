@@ -9,6 +9,21 @@
 # bind-mounts the host /opt at /opt (in-and-out), so a checkout under /opt in
 # the image would be shadowed at run time.
 #
+# CLIENT TOOLS for the plugins' external transports (behind the scenes):
+#   git             - the build-time clone above, and plugin sources of kind git
+#   curl            - the compose healthcheck
+#   openssh-client  - the `ssh` / `ssh+container` transports (keys live under
+#                     ${OMNI_DIR}/data/ssh, visible through the /opt mount)
+#   docker-ce-cli + - the `container` transport: `docker compose -p <project>
+#   docker-compose-   --env-file <env> -f <file> exec -T <service> sh -c '<args>'
+#   plugin            into a SIBLING service of the stack (himalaya lives only in
+#                     the omni `toolbox` image). CLIENT ONLY: no daemon, no
+#                     docker-in-docker, no privileged mode - the container talks
+#                     to the HOST daemon through the socket the compose service
+#                     mounts (/var/run/docker.sock).
+# All of them are installed at BUILD time only: a container start installs
+# nothing and the image stays runnable offline.
+#
 # Build (public repo, no auth - the default; works with the classic builder):
 #   docker compose build workbench
 #
@@ -22,10 +37,34 @@
 
 FROM node:22-bookworm-slim
 
-# git (the build-time clone) + curl (the compose healthcheck). Nothing else.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates curl \
- && rm -rf /var/lib/apt/lists/*
+# Debian codename of the Docker apt repository used below. Kept as a build arg
+# (the base image is bookworm) so the repository line never depends on shell
+# quoting. The Docker apt repo CHANNEL ("stable") is what is pinned, NOT an exact
+# package version: Docker prunes old builds, so a version pin turns a rebuild
+# into a failure. The resolved versions are printed below at build time.
+# Alternative route (not used): the STATIC client binaries
+# (download.docker.com/linux/static/stable) - no apt repo and no key, but the
+# compose v2 plugin comes from its own GitHub release and must be kept in sync
+# by hand.
+ARG DOCKER_APT_CODENAME=bookworm
+
+# git (the build-time clone) + curl (the compose healthcheck) + the CLIENT tools
+# described in the header (ssh transport, container transport). Docker's apt repo
+# supplies docker-ce-cli (the CLI only, NO daemon) and docker-compose-plugin (the
+# compose v2 plugin that `docker compose ...` needs).
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends git ca-certificates curl openssh-client; \
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc; \
+    chmod a+r /etc/apt/keyrings/docker.asc; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${DOCKER_APT_CODENAME} stable" > /etc/apt/sources.list.d/docker.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin; \
+    docker --version; \
+    docker compose version; \
+    ssh -V; \
+    rm -rf /var/lib/apt/lists/*
 
 # Clone coordinates: override with build args or the compose service vars.
 ARG WORKBENCH_REPO_URL=https://github.com/nexuslbs/workbench

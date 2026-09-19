@@ -185,6 +185,20 @@ services:
       # recreation and never pollutes the tracked /opt/omni config directory of
       # the host. WORKBENCH_CACHE_DIR is the path INSIDE the container.
       WORKBENCH_CACHE_DIR: ${WORKBENCH_CACHE_DIR:-/var/lib/workbench/sources}
+      # Omni root of the deployment whose stack the plugins may exec INTO: the
+      # `container` transport (docker-impl) launches
+      #   docker compose --project-directory <OMNI_DIR> ... exec -T <service>
+      # so the plugins config derives the compose project from it
+      # (`${env:OMNI_DIR}`, e.g. himalaya -> service `toolbox`). Same convention
+      # as the omniagent / dashboard services of this stack.
+      OMNI_DIR: ${OMNI_DIR:-/opt/omni}
+      # Compose project name of that stack. The transport's compose block may
+      # omit `project_name`, in which case the docker CLI falls back to
+      # COMPOSE_PROJECT_NAME (and then to the project directory basename - a
+      # CHECKOUT name, not the runtime project name). Pinned to the production
+      # project here; a deployment overrides it (dev: `omnidev`, inherited from
+      # the launch env file).
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-omni-stack}
     volumes:
       # /opt mapped IN AND OUT: a CONFIG_FILE under /opt/... resolves to the
       # SAME host file inside the container (this is how the operator's
@@ -197,6 +211,22 @@ services:
       # host tree. WORKBENCH_CACHE_DIR is the path INSIDE the container; the
       # volume itself is declared in the top-level `volumes:` below.
       - workbench-cache:${WORKBENCH_CACHE_DIR:-/var/lib/workbench/sources}:rw
+      # DOCKER DAEMON SOCKET (the host daemon, not a daemon in this container):
+      # the workbench plugins reach external tooling BEHIND THE SCENES through
+      # the `container` transport, which is
+      #   docker compose -p <project> --env-file <env> -f <file> exec -T
+      #     <service> sh -c '<args>'
+      # - i.e. it needs the docker CLIENT (shipped in the image) plus access to
+      # the daemon that owns the stack it exec's into. /opt is mounted in-and-out
+      # above, so the SAME compose file / .env paths resolve inside and outside
+      # the container; this socket is what lets that client talk to the daemon.
+      # SECURITY: a container with the docker socket has control of the host
+      # docker daemon, which is equivalent to host root. That is the accepted
+      # cost of reaching a sibling service (himalaya lives only in the omni
+      # `toolbox` image) without publishing a network path. Optional hardening
+      # (NOT used here): a socket proxy such as tecnativa/docker-socket-proxy
+      # exposing only CONTAINERS/EXEC, and mounting its endpoint instead.
+      - /var/run/docker.sock:/var/run/docker.sock:rw
     expose:
       # Container-INTERNAL port (never a host port): the dev overlay publishes
       # it on the host as 12347:8080.

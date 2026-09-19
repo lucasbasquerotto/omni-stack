@@ -136,6 +136,34 @@ plugin-source checkout lives in the external named volume `workbench-cache`
 (mounted at `WORKBENCH_CACHE_DIR`, default `/var/lib/workbench/sources`), so it
 survives container recreation and never touches the host tree.
 
+The image also carries the CLIENT tools the plugins need for their external
+transports, all installed at build time in
+[`services/workbench/Dockerfile`](services/workbench/Dockerfile): an **ssh
+client** (`openssh-client`) for the `ssh` / `ssh+container` transports, and the
+**docker CLI + compose v2 plugin** (`docker-ce-cli` + `docker-compose-plugin`,
+from Docker's apt repo, channel `stable` for the image's own Debian codename)
+for the `container` transport. That transport reaches external tooling **behind
+the scenes** by exec'ing into a sibling service of the stack, e.g.
+
+```
+docker compose -p <project> --env-file <env> -f <file> \
+  exec -T toolbox sh -c 'himalaya ...'
+```
+
+(himalaya exists only in the omni `toolbox` image). The base service therefore
+mounts the **host docker daemon socket**
+(`/var/run/docker.sock:/var/run/docker.sock:rw`). The image ships NO daemon: no
+docker-in-docker, no privileged mode - only a client, which talks to the host
+daemon through that socket. No extra env var is required for this: the default
+socket path is used and the transport passes `-p` / `-f` / `--env-file`
+explicitly, so neither `DOCKER_HOST` nor `COMPOSE_PROJECT_NAME` has to be set.
+
+> **Security note.** A container holding `/var/run/docker.sock` has control of
+> the host docker daemon, which is equivalent to host root. That is the accepted
+> cost of reaching the toolbox behind the scenes. Optional hardening (NOT used
+> here): put a socket proxy such as `tecnativa/docker-socket-proxy` in front and
+> mount its endpoint instead, exposing only the container/exec endpoints.
+
 ### Access
 
 | Service | URL | Notes |
