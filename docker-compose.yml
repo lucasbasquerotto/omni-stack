@@ -9,6 +9,14 @@ name: ${COMPOSE_PROJECT_NAME:-omni}
 # (workstation 512M -> 1024M on 2026-09-26, operator directive: a burst of 6
 # parallel `agent run` dispatches OOM-killed the production facade; documented
 # total 4544M -> 5056M.)
+# (toolbox 128M -> 512M and mattermost-db 128M -> 256M on 2026-10-05, operator
+# directive; both caps are now tunable from the .env via TOOLBOX_MEM_LIMIT and
+# MATTERMOST_DB_MEM_LIMIT. documented total 5056M -> 5568M.)
+# (2026-10-05, operator directive: EVERY service's cap is now env-tunable as
+# ${<SERVICE>_MEM_LIMIT:-<default>} - e.g. VAR_DOCKER_MEM_LIMIT style names -
+# so an operator can raise ANY container's limit from the .env without editing
+# this file. The defaults reproduce the committed caps EXACTLY; the documented
+# total above is unchanged unless one of those vars is actually set.)
 networks:
   obs-net:
     driver: bridge
@@ -19,12 +27,9 @@ services:
   #  Core (always running) 
 
   postgres:
-    # Default pinned to the tag production actually runs (/opt/omni/docker-compose.yml).
-    # Upstream pgvector publishes no `latest` tag, so the previous
-    # `${POSTGRES_IMAGE:-pgvector/pgvector:latest}` default could not be pulled by any
-    # fresh host: a dev deploy died at "Starting databases" with
-    # `failed to resolve reference "docker.io/pgvector/pgvector:latest": not found`.
-    # An explicit POSTGRES_IMAGE still overrides this.
+    # Upstream pgvector publishes no `latest` tag, so this default could not be
+    # pulled by a fresh host (omnidev bring-up died at "Starting databases").
+    # Pinned to the tag production runs; POSTGRES_IMAGE still overrides it.
     image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
     environment:
       POSTGRES_DB: omniagent
@@ -41,7 +46,8 @@ services:
       retries: 5
       start_period: 10s
     # Hard memory cap (see the 4 GB stack budget at the top of this file).
-    mem_limit: 896m
+    # Overridable from the .env: POSTGRES_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${POSTGRES_MEM_LIMIT:-896m}
     logging:
       driver: journald
 
@@ -140,7 +146,8 @@ services:
       - /opt/data:/opt/data:ro
       - ${WORKSPACE_DIR:-/opt/workspace}:/opt/workspace:ro
     # Hard memory cap: the dashboard is a small Node service.
-    mem_limit: 192m
+    # Overridable from the .env: DASHBOARD_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${DASHBOARD_MEM_LIMIT:-192m}
     logging:
       driver: journald
 
@@ -171,9 +178,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - omni-toolbox-cron:/var/log
     # Hard memory cap: the toolbox runs the backup/checkpoint cron jobs.
-    mem_limit: 128m
+    # Overridable from the .env: TOOLBOX_MEM_LIMIT (raised 128m -> 512m on
+    # operator request, 2026-10-05). Recreate the container to apply.
+    mem_limit: ${TOOLBOX_MEM_LIMIT:-128m}
     logging:
       driver: journald
+
   workstation-tools:
     # The external-interaction TOOLING of the workstation (himalaya email CLI +
     # the general Linux tool set), as a SEPARATE versioned image published from
@@ -184,12 +194,80 @@ services:
     # workstation used to exec into. The workstation reaches it through the
     # `container` transport (docker-impl): `docker compose exec -T
     # workstation-tools sh -c <cmd>`. WORKSTATION_TOOLS_IMAGE overrides it.
-    profiles: ["workstation", "all"]
+    # ALWAYS-ON: NO `profiles:` key here - the workstation pair is part of the
+    # DEFAULT production stack (operator directive, telegram 3232), so a stack
+    # bring-up can never silently omit it. Do NOT re-introduce a profile gate.
     image: ${WORKSTATION_TOOLS_IMAGE:-ghcr.io/nexuslbs/omni-images/workstation-tools:0.0.1}
     restart: unless-stopped
     command: ["sleep", "infinity"]
+    # The himalaya wrapper + account config live in the omni-root checkout under
+    # /opt/omni (config/himalaya-hermes, config/himalaya-auth.sh,
+    # data/himalaya/config.toml). himalaya-impl shells out THROUGH this service:
+    #   docker compose --project-directory /opt/omni exec -T workstation-tools \
+    #     sh -c '/opt/omni/config/himalaya-hermes account list -o json'
+    # so those absolute paths must resolve INSIDE this container. Without this
+    # bind the CLI exits 127 (`sh: /opt/omni/config/himalaya-hermes: not found`,
+    # verified 2026-09-26) and the whole email tool family of the workstation
+    # facade is dead. Read-only on purpose: this container RUNS tools, it never
+    # writes the checkout.
+    volumes:
+      - /opt/omni:/opt/omni:ro
     # Hard memory cap: sleep-only base, but the 0.0.9 image adds mongosh/gitleaks/trivy/semgrep which need headroom (mongosh OOM-killed at 128m, verified 2026-09-30).
-    mem_limit: 512m
+    # Overridable from the .env: WORKSTATION_TOOLS_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${WORKSTATION_TOOLS_MEM_LIMIT:-512m}
+    logging:
+      driver: journald
+
+  workstation-datasci:
+    # The DATA-SCIENCE concern image of the workstation equipment layer
+    # (gap-analysis report E2, operator decisions B/M): numpy/pandas/scipy/
+    # matplotlib/sklearn + jupyter on a DEBIAN base (python:3.11-slim) - the
+    # Alpine/musl wheels for the stack are painful, so it is NOT forced into
+    # the Alpine workstation-tools base. It contains tools that RUN AND FINISH
+    # (sleep infinity for exec-based use), reached through the `container`
+    # transport (docker-impl): `docker compose exec -T workstation-datasci
+    # sh -c <cmd>`, or on demand with `docker run --rm -i <image>`.
+    # PROFILE-GATED (operator M: on-demand profiles, like the browser): starts
+    # with `--profile datasci` (or `all`). WORKSTATION_DATASCI_IMAGE overrides.
+    profiles: ["datasci", "all"]
+    image: ${WORKSTATION_DATASCI_IMAGE:-ghcr.io/nexuslbs/omni-images/workstation-datasci:0.0.1}
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+    # Data-science work is RAM hungry, but the container is idle between execs.
+    # Overridable from the .env: WORKSTATION_DATASCI_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${WORKSTATION_DATASCI_MEM_LIMIT:-512m}
+    logging:
+      driver: journald
+
+  workstation-office:
+    # The OFFICE/OCR concern image (gap-analysis report E4/E5, operator D/M):
+    # pandoc, tesseract-ocr, poppler-utils + python-docx/openpyxl/reportlab/
+    # pptx/pypdf. LibreOffice stays OUT (it would blow the 350 MB budget; only
+    # a separate opt-in image if a project needs ODF/legacy rendering).
+    # PROFILE-GATED: starts with `--profile office` (or `all`).
+    # WORKSTATION_OFFICE_IMAGE overrides.
+    profiles: ["office", "all"]
+    image: ${WORKSTATION_OFFICE_IMAGE:-ghcr.io/nexuslbs/omni-images/workstation-office:0.0.1}
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+    # Overridable from the .env: WORKSTATION_OFFICE_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${WORKSTATION_OFFICE_MEM_LIMIT:-256m}
+    logging:
+      driver: journald
+
+  workstation-media:
+    # The MEDIA/TRANSCRIPTION concern image (gap-analysis report E6/E8,
+    # operator F/M): ffmpeg (MOVED OUT of the main workstation image per
+    # decision F), imagemagick (codec/security cadence -> Zone 2) and
+    # faster-whisper as the transcription engine. PROFILE-GATED: starts with
+    # `--profile media` (or `all`). WORKSTATION_MEDIA_IMAGE overrides.
+    profiles: ["media", "all"]
+    image: ${WORKSTATION_MEDIA_IMAGE:-ghcr.io/nexuslbs/omni-images/workstation-media:0.0.1}
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+    # Transcription loads model weights into RAM (faster-whisper small/base).
+    # Overridable from the .env: WORKSTATION_MEDIA_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${WORKSTATION_MEDIA_MEM_LIMIT:-1g}
     logging:
       driver: journald
 
@@ -213,11 +291,12 @@ services:
     # nothing). --max-old-space-size keeps the V8 heap inside mem_limit.
     command: ["node", "--max-old-space-size=384", "src/cli.ts", "serve"]
     environment:
-      # Plugins config file. EMPTY (the default) = the core default config
-      # shipped in the image (/workbench/workbench.config.yml, core plugins
-      # only). Non-empty = that exact path, e.g. the operator's
-      # CONFIG_FILE=/opt/omni/config/workbench.yml (a tracked file of the
-      # omni-root stack) - see .env.example.
+      # Plugins config file (the WORKBENCH_CONFIG_FILE .env var overrides it).
+      # EMPTY (the default) = the core default config shipped in the image
+      # (/workbench/workbench.config.yml, core plugins only). Non-empty = that
+      # exact path, e.g. the operator's
+      # WORKBENCH_CONFIG_FILE=/opt/omni/config/workbench.yml (a tracked file of
+      # the omni-root stack) - see .env.example.
       CONFIG_FILE: ${WORKBENCH_CONFIG_FILE:-}
       # Status endpoint port of `serve` INSIDE the container (the core's
       # WORKBENCH_PORT, default 8080); the dev overlay publishes it on the host
@@ -267,7 +346,7 @@ services:
       # SECURITY: a container with the docker socket has control of the host
       # docker daemon, which is equivalent to host root. That is the accepted
       # cost of reaching a sibling service (himalaya lives only in the omni
-      # `toolbox` image) without publishing a network path. Optional hardening
+      # `workstation-tools` image) without publishing a network path. Optional hardening
       # (NOT used here): a socket proxy such as tecnativa/docker-socket-proxy
       # exposing only CONTAINERS/EXEC, and mounting its endpoint instead.
       - /var/run/docker.sock:/var/run/docker.sock:rw
@@ -287,67 +366,120 @@ services:
     # heap) is too small to run the core's own test suite inside this container:
     # `node --test` was OOM-killed (exit 137). 512M fits `serve` plus one
     # on-demand test run; the stack budget (top of file) was re-checked.
-    mem_limit: 512M
+    # Overridable from the .env: WORKBENCH_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${WORKBENCH_MEM_LIMIT:-512M}
     logging:
       driver: journald
 
   workstation:
-    # Opt-in service: gated behind the "workstation" (or "all") compose profile -
-    # it is NOT part of the default stack. The base compose is the stable/runtime
-    # definition and is IMAGE-ONLY: it carries NO build section. The image is
-    # built from services/workstation/Dockerfile (build args WORKSTATION_REPO_URL /
-    # WORKSTATION_REF) by the dev overlay (docker-compose.dev.yml). The container
-    # start clones and installs NOTHING: it boots the plugins and stays up (the
-    # core's `serve` command). workstation is agent-agnostic - this service is the
-    # only coupling with the stack.
-    profiles: ["workstation", "all"]
+    # ALWAYS-ON service: NO `profiles:` key here - it is part of the DEFAULT
+    # production stack, so any bring-up starts it and the facade
+    # http://workstation:8080 is always reachable (operator directive, telegram
+    # 3232: "Production workstation MUST work, always"). Do NOT re-introduce a
+    # profile gate. The base compose is the stable/runtime
+    # definition and is IMAGE-ONLY: it carries NO build section (the dev overlay
+    # docker-compose.dev.yml builds the image from services/workstation/Dockerfile).
+    # workstation is AGENT-AGNOSTIC: it needs NO omniagent setup and receives
+    # EXACTLY TWO env vars (WORKSTATION_CONFIG_FILE + WORKSTATION_CACHE_DIR),
+    # plus DSH_HOME (the harness home: role profiles + credential store).
+    # The HTTP port (8080) is served by the native `http-surface` plugin of the
+    # plugin sources (see config/workstation.yml), NOT by an env var.
     # Default: the PUBLISHED core image (ghcr.io/nexuslbs/deepseek-harness:latest,
-    # built by the core repo's CI); WORKSTATION_IMAGE overrides it.
+    # built by the core fork's publish workflow); WORKSTATION_IMAGE overrides it.
     image: ${WORKSTATION_IMAGE:-ghcr.io/nexuslbs/deepseek-harness:latest}
     restart: unless-stopped
-    # Long-running mode: `serve` boots the plugins behind a status endpoint and
-    # blocks until SIGINT/SIGTERM (a sleep loop would report Up while hosting
-    # nothing). --max-old-space-size keeps the V8 heap inside mem_limit.
-    command: ["node", "--max-old-space-size=384", "src/cli.ts", "serve"]
+    # The published image is a BARE harness (CMD --profile headless, no bundled
+    # plugins, no entrypoint): the tracked omni-root entrypoint (mounted below)
+    # clones the plugin sources into the cache volume and boots the harness with
+    # the config patch ($WORKSTATION_CONFIG_FILE). The native `http-surface`
+    # plugin serves /health + /api/tool/call on 8080.
+    command: ["sh", "/usr/local/bin/workstation-entrypoint"]
     environment:
-      # Plugins config file (the WORKSTATION_CONFIG_FILE .env var overrides it).
-      # EMPTY (the default) = the core default config shipped in the image
-      # (/workstation/workstation.config.yml, core plugins only). Non-empty = that
-      # exact path, e.g. the operator's
-      # WORKSTATION_CONFIG_FILE=/opt/omni/config/workstation.yml (a tracked file of
-      # the omni-root stack) - see .env.example.
-      CONFIG_FILE: ${WORKSTATION_CONFIG_FILE:-}
-      # Status endpoint port of `serve` INSIDE the container (the core's
-      # WORKSTATION_PORT, default 8080); the dev overlay publishes it on the host
-      # as 12348:8080.
-      WORKSTATION_PORT: ${WORKSTATION_PORT:-8080}
-      # Where git plugin sources are checked out. Backed by the EXTERNAL NAMED
-      # VOLUME `workstation-cache` (declared in the service's volumes list and in
-      # the top-level volumes: block below): the checkout survives container
-      # recreation and never pollutes the tracked /opt/omni config directory of
-      # the host. WORKSTATION_CACHE_DIR is the path INSIDE the container.
+      # Plugins config file: the cordis patch overlay that defines every
+      # capability (email, sms, totp, browser, web). A RUN-TIME input only,
+      # never an image layer. Default: the operator's tracked file of the
+      # omni-root stack (same path inside and outside the container through the
+      # /opt:/opt mount).
+      WORKSTATION_CONFIG_FILE: ${WORKSTATION_CONFIG_FILE:-/opt/omni/config/workstation.yml}
+      # The HARNESS HOME: role profiles ($DSH_HOME/profiles/<role>), the credential
+      # store ($DSH_HOME/.credentials.yaml) and the session state. It MUST live in
+      # the NON-VERSIONED omni data tree so the periodic backups cover it and it can
+      # never be committed: the image ENV default (/var/lib/workstation) is the
+      # container's writable layer and is LOST on every recreate. WORKSTATION_DSH_HOME
+      # overrides it (the dev stack sets its own omni tree).
+      DSH_HOME: ${WORKSTATION_DSH_HOME:-/opt/omni/data/workstation/dsh-home}
+      # Where the git plugin sources are checked out (entrypoint.sh clones them
+      # ONCE into this dir). Backed by the EXTERNAL NAMED VOLUME
+      # `workstation-cache` (declared below): the checkout survives container
+      # recreation. The volume mapping below uses the SAME path, so
+      # $WORKSTATION_CACHE_DIR IS where the sources are stored.
       WORKSTATION_CACHE_DIR: ${WORKSTATION_CACHE_DIR:-/var/lib/workstation/sources}
-      # Omni root of the deployment whose stack the plugins may exec INTO: the
-      # `container` transport (docker-impl) launches
-      #   docker compose --project-directory <OMNI_DIR> ... exec -T <service>
-      # so the plugins config derives the compose project from it
-      # (`${env:OMNI_DIR}`, e.g. himalaya -> service `toolbox`). Same convention
-      # as the omniagent / dashboard services of this stack.
-      OMNI_DIR: ${OMNI_DIR:-/opt/omni}
-      # Compose project name of that stack. The transport's compose block may
-      # omit `project_name`, in which case the docker CLI falls back to
-      # COMPOSE_PROJECT_NAME (and then to the project directory basename - a
-      # CHECKOUT name, not the runtime project name). Pinned to the production
-      # project here; a deployment overrides it (dev: `omnidev`, inherited from
-      # the launch env file).
+      # ── PRIVATE plugin source (nexuslbs/workstation-plugins-private) ──────
+      # The authenticated-access + captcha capability plugins are PRIVATE and are
+      # cloned by services/workstation/clone-private-plugins.mjs BEFORE the
+      # harness boots (the harness has no `source` concept). The GitHub App
+      # private key is OPERATOR-PROVIDED at deploy time (env file / secret); the
+      # app and installation ids are numeric and not secrets. With no key the
+      # step logs a WARN and the public set boots unchanged (non-fatal).
+      WORKSTATION_PLUGINS_PRIVATE_REPO_URL: ${WORKSTATION_PLUGINS_PRIVATE_REPO_URL:-https://github.com/nexuslbs/workstation-plugins-private}
+      WORKSTATION_PLUGINS_PRIVATE_REF: ${WORKSTATION_PLUGINS_PRIVATE_REF:-main}
+      # ONE app identity for the whole workstation service: the git credential
+      # helper (workstation/bin/gh-cred) and the private-source mint
+      # (services/workstation/clone-private-plugins.mjs) MUST use the app that
+      # owns the PEM on the NON-VERSIONED credentials tree. GITHUB_APP_ID /
+      # GITHUB_INSTALLATION_ID are the shared source of truth; the
+      # WORKSTATION_PLUGINS_PRIVATE_* ids default to the same values, so the two
+      # paths can never drift apart again (thread 3243 lost the private source to
+      # exactly that drift: the mint was pointed at a STALE key file).
+      # Verified 2026-09-26 (thread 3252): app 3967918 = nexuslbs-app,
+      # GET /app -> HTTP 200 and POST /app/installations/138119822/access_tokens
+      # -> HTTP 201 for /opt/omni/data/credentials/github-app.pem.
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-3967918}
+      GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:-138119822}
+      WORKSTATION_PLUGINS_PRIVATE_APP_ID: ${WORKSTATION_PLUGINS_PRIVATE_APP_ID:-${GITHUB_APP_ID:-3967918}}
+      WORKSTATION_PLUGINS_PRIVATE_INSTALLATION_ID: ${WORKSTATION_PLUGINS_PRIVATE_INSTALLATION_ID:-${GITHUB_INSTALLATION_ID:-138119822}}
+      WORKSTATION_PLUGINS_PRIVATE_APP_KEY: ${WORKSTATION_PLUGINS_PRIVATE_APP_KEY:-${GITHUB_APP_KEY:-}}
+      # The App PEM lives on the NON-VERSIONED credentials tree (mode 600) and is
+      # read from FILE when no PEM is passed in the environment. The deployment's
+      # git credential helper (workstation/bin/gh-cred, installed by
+      # entrypoint.sh) reads the SAME file, so the App key has exactly ONE
+      # location and is NEVER versioned.
+      WORKSTATION_PLUGINS_PRIVATE_APP_KEY_FILE: ${WORKSTATION_PLUGINS_PRIVATE_APP_KEY_FILE:-/opt/omni/data/credentials/github-app.pem}
+      GITHUB_APP_KEY_FILE: ${GITHUB_APP_KEY_FILE:-/opt/omni/data/credentials/github-app.pem}
+      # --- Concern exec target ---------------------------------------------
+      # container-exec (config/workstation.yml row) runs concern commands as
+      # `docker compose --project-directory <dir> exec -T <service>`. The plugin
+      # resolves <dir> as: config row `projectDir` > this env > the production
+      # /opt/omni default. Without a project name the docker CLI falls back to
+      # COMPOSE_PROJECT_NAME. The defaults below keep the current production
+      # behaviour (omni-stack / empty); the omnidev overlay pins
+      # COMPOSE_PROJECT_NAME=omnidev in docker-compose.dev.yml, and omnistable /
+      # the deployer pass their own values.
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-omni-stack}
+      WORKSTATION_EXEC_PROJECT: ${WORKSTATION_EXEC_PROJECT:-}
     volumes:
-      # /opt mapped IN AND OUT: a CONFIG_FILE under /opt/... resolves to the
-      # SAME host file inside the container (this is how the operator's
-      # /opt/omni/config/workstation.yml is read, and how the dev overlay reaches
-      # the tracked config/workstation.dev.yml). The image's own checkout
-      # lives in /workstation, outside /opt, so this mount never shadows it.
+      # /opt mapped IN AND OUT: the operator's config/workstation.yml and the
+      # tracked entrypoint under /opt/omni/services/workstation resolve to the
+      # SAME host files inside the container. The image's own checkout lives in
+      # /harness, outside /opt, so this mount never shadows it.
       - /opt:/opt:rw
+      # The tracked container entrypoint (omni-root services/workstation/
+      # entrypoint.sh): the published image ships NO entrypoint, so the compose
+      # command above runs it from the bind-mounted /opt tree.
+      - /opt/omni/services/workstation/entrypoint.sh:/usr/local/bin/workstation-entrypoint:ro
+      # THE HARNESS HOME, PERSISTED (role profiles + .credentials.yaml +
+      # sessions): a NON-VERSIONED bind of the omni data tree. Without it the
+      # harness home is the container's WRITABLE LAYER and every recreate wipes
+      # it - observed thread 3263: after the entrypoint-fix recreate `web search`
+      # answered `web-search.not-configured` and `agent run` could not provision
+      # ANY role (`no profile at /var/lib/workstation/profiles/<role>`). DSH_HOME
+      # (above) points at the SAME tree through the /opt mount; this bind
+      # additionally makes the image's own default path
+      # ($DSH_HOME=/var/lib/workstation) persistent, so neither path can regress
+      # into the writable layer. Docker sorts mounts by destination depth, so the
+      # named `sources` volume below still wins for
+      # /var/lib/workstation/sources.
+      - /opt/omni/data/workstation/dsh-home:/var/lib/workstation:rw
       # EXTERNAL NAMED VOLUME (NOT a bind mount): the `git` plugin-source
       # checkout persists across container recreation and never leaks into the
       # host tree. WORKSTATION_CACHE_DIR is the path INSIDE the container; the
@@ -375,8 +507,9 @@ services:
       - "8080"
     healthcheck:
       # curl (installed in the service image) probes the status endpoint, so the
-      # service is verifiably HOSTING the plugins, not merely running.
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${WORKSTATION_PORT:-8080}/health > /dev/null"]
+      # service is verifiably HOSTING the plugins, not merely running. The port
+      # is the http-surface plugin's fixed 8080 - NO env var (omniagent-agnostic rule).
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health > /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -387,12 +520,13 @@ services:
     # `restart: unless-stopped` policy brought it back, with NO recreate. 1G
     # keeps several concurrent agent runs alive; the stack budget (top of file)
     # was re-checked.
-    mem_limit: 1024M
+    # Overridable from the .env: WORKSTATION_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${WORKSTATION_MEM_LIMIT:-1024M}
     logging:
       driver: journald
 
-  #  Browser service (profile: browser) - a SEPARATE image, never the workbench image 
-  # The published workbench image stays BROWSER-FREE (no chromium): the
+  #  Browser service (profile: browser) - a SEPARATE image, never the workstation image 
+  # The published workstation image stays BROWSER-FREE (no chromium): the
   # `browser-use-playwright` provider only ATTACHES to this service over CDP,
   # resolved through the general-service@1 seam
   # (`browser-use-playwright.browserService.endpoint` -> http://browser:9222).
@@ -400,8 +534,8 @@ services:
   # is NOT part of the default stack and nothing is pulled/started unless asked.
   browser:
     profiles: ["browser", "all"]
-    # Published from nexuslbs/omni-images/browser (built FROM the upstream
-    # Playwright image, chromium baked in). BROWSER_IMAGE overrides it.
+    # Published from nexuslbs/omni-images/browser (built FROM the upstream Playwright
+    # image, chromium baked in). BROWSER_IMAGE overrides it.
     image: ${BROWSER_IMAGE:-ghcr.io/nexuslbs/omni-images/browser:0.0.4}
     restart: unless-stopped
     # Chromium needs a bigger /dev/shm than the docker default (64M).
@@ -416,7 +550,8 @@ services:
     # Hard memory cap. This service is opt-in (profile "browser"), so its cap is
     # NOT part of the always-on stack budget; re-check the budget before enabling
     # it next to the default services.
-    mem_limit: 1024M
+    # Overridable from the .env: BROWSER_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${BROWSER_MEM_LIMIT:-1024M}
     logging:
       driver: journald
 
@@ -434,17 +569,16 @@ services:
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN}
     command: tunnel --no-autoupdate run
-    mem_limit: 64M
+    # Overridable from the .env: CLOUDFLARED_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${CLOUDFLARED_MEM_LIMIT:-64M}
     logging:
       driver: journald
 
   #  Mattermost (profile: mattermost) 
   mattermost-db:
-    # Pinned to the tag production runs (/opt/omni/docker-compose.yml): `latest` now
-    # resolves to PostgreSQL 18, whose image refuses to start with data at
-    # /var/lib/postgresql/data (18+ wants a single mount at /var/lib/postgresql), so
-    # the service restarted forever and never became healthy. An explicit
-    # MATTERMOST_DB_IMAGE still overrides this.
+    # `latest` now resolves to PostgreSQL 18, which refuses the
+    # /var/lib/postgresql/data mount used below (18+ wants a mount at
+    # /var/lib/postgresql), so the service never became healthy.
     image: ${MATTERMOST_DB_IMAGE:-postgres:16.14}
     profiles: ["mattermost", "all"]
     restart: unless-stopped
@@ -459,14 +593,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    mem_limit: 128M
+    # Overridable from the .env: MATTERMOST_DB_MEM_LIMIT (raised 128M -> 256M
+    # on operator request, 2026-10-05). Recreate the container to apply.
+    mem_limit: ${MATTERMOST_DB_MEM_LIMIT:-128M}
     logging:
       driver: journald
 
   mattermost:
-    # Pinned to the version production runs (/opt/omni/docker-compose.yml): a fresh
-    # pull of `latest` is not the release the stack is validated against. Overridable
-    # via MATTERMOST_IMAGE.
     image: ${MATTERMOST_IMAGE:-mattermost/mattermost-team-edition:10.11.20}
     profiles: ["mattermost", "all"]
     restart: unless-stopped
@@ -490,7 +623,8 @@ services:
       - mm-data:/mattermost/data:rw
       - mm-logs:/mattermost/logs:rw
       - mm-plugins:/mattermost/plugins:rw
-    mem_limit: 512M
+    # Overridable from the .env: MATTERMOST_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${MATTERMOST_MEM_LIMIT:-512M}
     logging:
       driver: journald
 
@@ -506,8 +640,6 @@ services:
     # profiles are unaffected). LLM keys (OPENAI_API_KEY / ANTHROPIC_API_KEY)
     # are operator-provided via env/secrets when agents need them -
     # intentionally not hardcoded here.
-    # Pinned to the version production runs (/opt/omni/docker-compose.yml).
-    # Overridable via PAPERCLIP_IMAGE.
     image: ${PAPERCLIP_IMAGE:-ghcr.io/paperclipai/paperclip:sha-e55d702}
     profiles: ["paperclip", "all"]
     restart: unless-stopped
@@ -525,14 +657,13 @@ services:
       PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: "${PAPERCLIP_TOOL_ACTION_SIGNING_SECRET:-}"
     volumes:
       - paperclip-data:/paperclip
-    mem_limit: 64M
+    # Overridable from the .env: PAPERCLIP_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${PAPERCLIP_MEM_LIMIT:-64M}
     logging:
       driver: journald
 
   #  Memory: Hindsight (profile: memory) 
   qdrant:
-    # Pinned to the version production runs (/opt/omni/docker-compose.yml).
-    # Overridable via QDRANT_IMAGE.
     image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.18.2}
     # Individual profiles: 'qdrant' starts ONLY qdrant; 'hindsight' starts ONLY
     # hindsight; 'memory' (legacy) forces BOTH. Use the single-service profile
@@ -543,7 +674,8 @@ services:
       - qdrant_data:/qdrant/storage
     expose:
       - "6333"
-    mem_limit: 128M
+    # Overridable from the .env: QDRANT_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${QDRANT_MEM_LIMIT:-128M}
     logging:
       driver: journald
 
@@ -560,7 +692,8 @@ services:
       - "9999"
     volumes:
       - hindsight-data:/home/hindsight/.pg0
-    mem_limit: 64M
+    # Overridable from the .env: HINDSIGHT_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${HINDSIGHT_MEM_LIMIT:-64M}
     logging:
       driver: journald
 
@@ -577,7 +710,8 @@ services:
       - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
-    mem_limit: 64M
+    # Overridable from the .env: CADVISOR_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${CADVISOR_MEM_LIMIT:-64M}
     logging:
       driver: journald
 
@@ -599,7 +733,8 @@ services:
       - '--storage.tsdb.path=/prometheus'
     volumes:
       - prometheus-vol:/prometheus:rw
-    mem_limit: 128M
+    # Overridable from the .env: PROMETHEUS_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${PROMETHEUS_MEM_LIMIT:-128M}
     logging:
       driver: journald
 
@@ -627,7 +762,8 @@ services:
       - obs-net
     depends_on:
       - loki
-    mem_limit: 128M
+    # Overridable from the .env: VECTOR_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${VECTOR_MEM_LIMIT:-128M}
     # CRITICAL: must NOT use the journald driver (same rule as the omni-root repo's
     # vector). The console sink writes every processed log to stdout; with the
     # journald driver that output re-enters the journald source -> infinite
@@ -654,7 +790,8 @@ services:
       - obs-net
     command: -config.file=/etc/loki/loki-config.yaml
     user: root
-    mem_limit: 192M
+    # Overridable from the .env: LOKI_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${LOKI_MEM_LIMIT:-192M}
     logging:
       driver: journald
 
@@ -680,7 +817,8 @@ services:
       loki:
         condition: service_started
         required: false
-    mem_limit: 256M
+    # Overridable from the .env: GRAFANA_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${GRAFANA_MEM_LIMIT:-256M}
     logging:
       driver: journald
 
@@ -699,7 +837,8 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    mem_limit: 64M
+    # Overridable from the .env: NOOP_PROVIDER_MEM_LIMIT. Recreate to apply.
+    mem_limit: ${NOOP_PROVIDER_MEM_LIMIT:-64M}
     logging:
       driver: journald
 
@@ -721,4 +860,5 @@ volumes:
   prometheus-vol:
   vector-vol:
   workbench-cache:
+
   workstation-cache:
